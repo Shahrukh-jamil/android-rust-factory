@@ -1,6 +1,5 @@
 use std::ffi::c_void;
 use std::ptr::null_mut;
-use log::error;
 
 pub type EGLDisplay = *mut c_void;
 pub type EGLConfig = *mut c_void;
@@ -17,6 +16,7 @@ const EGL_CONTEXT_CLIENT_VERSION: EGLint = 0x3098;
 const EGL_OPENGL_ES2_BIT: EGLint = 4;
 const EGL_SURFACE_TYPE: EGLint = 0x3033;
 const EGL_WINDOW_BIT: EGLint = 4;
+const EGL_RENDERABLE_TYPE: EGLint = 0x3040;
 const EGL_RED_SIZE: EGLint = 0x3024;
 const EGL_GREEN_SIZE: EGLint = 0x3023;
 const EGL_BLUE_SIZE: EGLint = 0x3022;
@@ -62,7 +62,7 @@ impl Engine {
         }
     }
 
-    pub fn init_surface(&mut self, window: &android_activity::NativeWindow) {
+    pub fn init_surface(&mut self, window: &android_activity::ndk::native_window::NativeWindow) {
         unsafe {
             if self.display == EGL_NO_DISPLAY {
                 self.display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
