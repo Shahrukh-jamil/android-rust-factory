@@ -22,7 +22,8 @@ if "config.json" in files:
 
 app_name = config["appName"]
 pkg_id = config["packageId"]
-v_code = config.get("versionCode", 1)
+v_code = str(config.get("versionCode", 1))
+v_name = f"1.0.{v_code}"
 orientation = config.get("orientation", "portrait")
 permissions = config.get("permissions", [])
 
@@ -31,10 +32,12 @@ if env_file:
     with open(env_file, 'a') as f:
         safe_name = app_name.replace(' ', '')
         f.write(f"APP_NAME={safe_name}\n")
+        f.write(f"VERSION_CODE={v_code}\n")
+        f.write(f"VERSION_NAME={v_name}\n")
 
 print(f"Injecting App: {app_name} ({pkg_id}) v{v_code}")
 
-# 1. Generate Dynamic AndroidManifest.xml (Zero Waste Permissions)
+# 1. Generate Manifest with Target SDK 34 & Version Code
 perm_lines = [f'    <uses-permission android:name="{p}" />' for p in permissions]
 perms_block = "\n".join(perm_lines)
 
@@ -43,6 +46,8 @@ with open("AndroidManifest.xml.template", "r") as f:
 
 manifest = template.format(
     package_id=pkg_id,
+    version_code=v_code,
+    version_name=v_name,
     permissions_block=perms_block,
     orientation=orientation
 )
