@@ -76,7 +76,7 @@ jobs:
           zip -0 -u unaligned.apk lib/arm64-v8a/libapp.so
 
           # 3. 16KB Page Alignment
-          $ZIPALIGN -P 16 -p -f 4 unaligned.apk aligned.apk
+          $ZIPALIGN -P 16 -f 4 unaligned.apk aligned.apk
 
           # 4. Sign Release APK
           FINAL_APK_NAME="${APP_NAME:-App}.apk"
