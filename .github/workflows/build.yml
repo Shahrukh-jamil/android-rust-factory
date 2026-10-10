@@ -1,0 +1,126 @@
+name: Build Ultra-Minimal Rust APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      gist_id:
+        description: 'Gist ID'
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - run: pip install requests
+      - run: python injector.py ${{ github.event.inputs.gist_id }}
+
+      - name: Setup Rust & ARM64 Target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Decode Keystore Safely
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          python3 -c "
+          import os, base64
+          raw = os.environ.get('KEYSTORE_BASE64', '').strip().replace('\\n', '').replace('\\r', '').replace(' ', '')
+          if not raw:
+              raise ValueError('KEYSTORE_BASE64 secret is EMPTY!')
+          missing = len(raw) % 4
+          if missing:
+              raw += '=' * (4 - missing)
+          with open('release-key.jks', 'wb') as f:
+              f.write(base64.b64decode(raw))
+          "
+
+      - name: Compile Stripped Rust Shared Library
+        run: |
+          TOOLCHAIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export PATH="$TOOLCHAIN:$PATH"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$TOOLCHAIN/aarch64-linux-android24-clang"
+          export CC_aarch64_linux_android="$TOOLCHAIN/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$TOOLCHAIN/llvm-ar"
+          export RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384"
+          
+          cargo build --target aarch64-linux-android --release
+
+      - name: Direct AAPT2 & Apksigner Packaging (No Gradle)
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          BUILD_TOOLS=$(ls -d $ANDROID_SDK_ROOT/build-tools/* | sort -V | tail -n 1)
+          PLATFORM_JAR=$(ls -d $ANDROID_SDK_ROOT/platforms/android-*/android.jar | sort -V | tail -n 1)
+          AAPT2="$BUILD_TOOLS/aapt2"
+          ZIPALIGN="$BUILD_TOOLS/zipalign"
+          APKSIGNER="$BUILD_TOOLS/apksigner"
+
+          # 1. Compile Resources
+          $AAPT2 compile --dir res -o compiled_res.zip
+          $AAPT2 link -I "$PLATFORM_JAR" --manifest AndroidManifest.xml -o unaligned.apk compiled_res.zip --auto-add-overlay
+
+          # 2. Inject Native SO
+          mkdir -p lib/arm64-v8a
+          cp target/aarch64-linux-android/release/libapp.so lib/arm64-v8a/libapp.so
+          zip -0 -u unaligned.apk lib/arm64-v8a/libapp.so
+
+          # 3. 16KB Page Alignment
+          $ZIPALIGN -P 16 -p -f 4 unaligned.apk aligned.apk
+
+          # 4. Sign Release APK
+          FINAL_APK_NAME="${APP_NAME:-App}.apk"
+          $APKSIGNER sign --ks release-key.jks \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass "pass:$KEYSTORE_PASSWORD" \
+            --key-pass "pass:$KEY_PASSWORD" \
+            --out "$FINAL_APK_NAME" \
+            aligned.apk
+
+          echo "APK_READY=$FINAL_APK_NAME" >> $GITHUB_ENV
+          ls -lh "$FINAL_APK_NAME"
+
+      - name: Upload APK to GitHub Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-APK
+          path: ${{ env.APK_READY }}
+          retention-days: 7
+
+      - name: Multi-Cloud File Uploads
+        run: |
+          FINAL_APK_NAME="${APP_NAME:-App}.apk"
+          echo "### 📱 Download Links for ${{ env.APP_NAME }}" >> $GITHUB_STEP_SUMMARY
+
+          log_upload() {
+            local service="$1"
+            local url="$2"
+            if [[ -n "$url" && "$url" =~ ^https?:// ]]; then
+              echo "✅ $service: $url"
+              echo "- **$service:** [$url]($url)" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ $service: Failed"
+            fi
+          }
+
+          URL_CATBOX=$(curl -s -A "Mozilla/5.0" -F "reqtype=fileupload" -F "fileToUpload=@$FINAL_APK_NAME" https://catbox.moe/user/api.php 2>/dev/null || true)
+          log_upload "Catbox.moe" "$URL_CATBOX"
+
+          URL_LITTER=$(curl -s -A "Mozilla/5.0" -F "reqtype=fileupload" -F "time=72h" -F "fileToUpload=@$FINAL_APK_NAME" https://litterbox.catbox.moe/resources/internals/api.php 2>/dev/null || true)
+          log_upload "Litterbox" "$URL_LITTER"
+
+          URL_TEMP=$(curl -s -A "Mozilla/5.0" -F "file=@$FINAL_APK_NAME" https://temp.sh/upload 2>/dev/null || true)
+          log_upload "Temp.sh" "$URL_TEMP"
+
+          URL_TRANSFER=$(curl -s -A "Mozilla/5.0" -H "Content-Type: application/vnd.android.package-archive" --upload-file "$FINAL_APK_NAME" "https://transfer.sh/$FINAL_APK_NAME" 2>/dev/null || true)
+          log_upload "Transfer.sh" "$URL_TRANSFER"
