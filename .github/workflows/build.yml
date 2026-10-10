@@ -66,9 +66,17 @@ jobs:
           ZIPALIGN="$BUILD_TOOLS/zipalign"
           APKSIGNER="$BUILD_TOOLS/apksigner"
 
-          # 1. Compile Resources
+          # 1. Compile Resources with Explicit Target SDK 34
           $AAPT2 compile --dir res -o compiled_res.zip
-          $AAPT2 link -I "$PLATFORM_JAR" --manifest AndroidManifest.xml -o unaligned.apk compiled_res.zip --auto-add-overlay
+          $AAPT2 link -I "$PLATFORM_JAR" \
+            --manifest AndroidManifest.xml \
+            --min-sdk-version 24 \
+            --target-sdk-version 34 \
+            --version-code "${VERSION_CODE:-1}" \
+            --version-name "${VERSION_NAME:-1.0.1}" \
+            -o unaligned.apk \
+            compiled_res.zip \
+            --auto-add-overlay
 
           # 2. Inject Native SO
           mkdir -p lib/arm64-v8a
@@ -86,6 +94,9 @@ jobs:
             --key-pass "pass:$KEY_PASSWORD" \
             --out "$FINAL_APK_NAME" \
             aligned.apk
+
+          # 5. Verify Signatures Verbose
+          $APKSIGNER verify --verbose "$FINAL_APK_NAME"
 
           echo "APK_READY=$FINAL_APK_NAME" >> $GITHUB_ENV
           ls -lh "$FINAL_APK_NAME"
