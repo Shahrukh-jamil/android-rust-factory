@@ -7,11 +7,23 @@ use android_activity::{
     input::{InputEvent, MotionAction}
 };
 
+// Zero-cost direct Android logcat binding (0 kB external crates)
+#[link(name = "log")]
+extern "C" {
+    fn __android_log_write(prio: i32, tag: *const u8, text: *const u8) -> i32;
+}
+
+pub fn log_info(msg: &str) {
+    let mut null_terminated = msg.to_string();
+    null_terminated.push('\0');
+    unsafe {
+        __android_log_write(4, b"RustApp\0".as_ptr(), null_terminated.as_ptr());
+    }
+}
+
 #[no_mangle]
 fn android_main(app: AndroidApp) {
-    android_logger::init_once(
-        android_logger::Config::default().with_max_level(log::LevelFilter::Info),
-    );
+    log_info("Starting Ultra-Minimal Rust NativeActivity...");
 
     let mut eng = engine::Engine::new();
     let mut state = app::AppState::new();
