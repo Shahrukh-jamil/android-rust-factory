@@ -10,7 +10,7 @@ use android_activity::{
 #[no_mangle]
 fn android_main(app: AndroidApp) {
     android_logger::init_once(
-        android_logger::Config::default().with_min_level(log::Level::Info),
+        android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
 
     let mut eng = engine::Engine::new();
@@ -40,23 +40,25 @@ fn android_main(app: AndroidApp) {
             }
         });
 
-        app.input_events(|event| {
-            if let InputEvent::MotionEvent(motion) = event {
-                let action = motion.action();
-                for pointer in motion.pointers() {
-                    let act_code = match action {
-                        MotionAction::Down => 0,
-                        MotionAction::Move => 2,
-                        MotionAction::Up => 1,
-                        _ => 3,
-                    };
-                    state.on_touch(act_code, pointer.x(), pointer.y(), eng.width, eng.height);
+        if let Ok(mut iter) = app.input_events_iter() {
+            while iter.next(|event| {
+                if let InputEvent::MotionEvent(motion) = event {
+                    let action = motion.action();
+                    for pointer in motion.pointers() {
+                        let act_code = match action {
+                            MotionAction::Down => 0,
+                            MotionAction::Move => 2,
+                            MotionAction::Up => 1,
+                            _ => 3,
+                        };
+                        state.on_touch(act_code, pointer.x(), pointer.y(), eng.width, eng.height);
+                    }
+                    InputStatus::Handled
+                } else {
+                    InputStatus::Unhandled
                 }
-                InputStatus::Handled
-            } else {
-                InputStatus::Unhandled
-            }
-        });
+            }) {}
+        }
 
         if eng.has_surface() {
             state.render(eng.width, eng.height);
