@@ -45,17 +45,21 @@ jobs:
               f.write(base64.b64decode(raw))
           "
 
-      - name: Compile Ultra-Stripped Rust Shared Library (Rebuilding std for size)
+      - name: Compile Ultra-Stripped Rust Shared Library
         run: |
           TOOLCHAIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export PATH="$TOOLCHAIN:$PATH"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$TOOLCHAIN/aarch64-linux-android24-clang"
           export CC_aarch64_linux_android="$TOOLCHAIN/aarch64-linux-android24-clang"
           export AR_aarch64_linux_android="$TOOLCHAIN/llvm-ar"
-          export RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384"
+          export RUSTFLAGS="-Zlocation-detail=none -C link-arg=-Wl,-z,max-page-size=16384"
           
-          # Rebuild std from source with opt-level=z and panic_immediate_abort
-          cargo build             -Z build-std=std,panic_abort             -Z build-std-features=panic_immediate_abort             --target aarch64-linux-android             --release
+          # Rebuild std for size with optimize_for_size
+          cargo build \
+            -Z build-std=std,panic_abort \
+            -Z build-std-features="optimize_for_size" \
+            --target aarch64-linux-android \
+            --release
 
           # Strip remaining ELF symbols with NDK llvm-strip
           $TOOLCHAIN/llvm-strip --strip-all target/aarch64-linux-android/release/libapp.so
