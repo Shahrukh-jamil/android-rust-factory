@@ -22,10 +22,12 @@ jobs:
       - run: pip install requests
       - run: python injector.py ${{ github.event.inputs.gist_id }}
 
-      - name: Setup Rust & ARM64 Target
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust Nightly with Source (for build-std)
+        uses: dtolnay/rust-toolchain@nightly
         with:
+          toolchain: nightly
           targets: aarch64-linux-android
+          components: rust-src
 
       - name: Decode Keystore Safely
         env:
@@ -43,7 +45,7 @@ jobs:
               f.write(base64.b64decode(raw))
           "
 
-      - name: Compile Stripped Rust Shared Library
+      - name: Compile Ultra-Stripped Rust Shared Library (Rebuilding std for size)
         run: |
           TOOLCHAIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export PATH="$TOOLCHAIN:$PATH"
@@ -52,10 +54,13 @@ jobs:
           export AR_aarch64_linux_android="$TOOLCHAIN/llvm-ar"
           export RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384"
           
-          cargo build --target aarch64-linux-android --release
+          # Rebuild std from source with opt-level=z and panic_immediate_abort
+          cargo build             -Z build-std=std,panic_abort             -Z build-std-features=panic_immediate_abort             --target aarch64-linux-android             --release
 
-          # Aggressive binary strip via NDK llvm-strip
+          # Strip remaining ELF symbols with NDK llvm-strip
           $TOOLCHAIN/llvm-strip --strip-all target/aarch64-linux-android/release/libapp.so
+          
+          echo "=== STRIPPED NATIVE SO SIZE ==="
           ls -lh target/aarch64-linux-android/release/libapp.so
 
       - name: Direct AAPT2 & Apksigner Packaging (No Gradle)
@@ -103,6 +108,7 @@ jobs:
           $APKSIGNER verify --verbose "$FINAL_APK_NAME"
 
           echo "APK_READY=$FINAL_APK_NAME" >> $GITHUB_ENV
+          echo "=== FINAL APK SIZE ==="
           ls -lh "$FINAL_APK_NAME"
 
       - name: Upload APK to GitHub Artifacts
